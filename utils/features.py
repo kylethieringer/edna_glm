@@ -8,9 +8,12 @@ import pandas as pd
 import scipy.ndimage
 import scipy.io
 import scipy.interpolate
-import adskalman
 import glob
 import multiprocessing
+import sys
+sys.path.append(os.path.dirname(os.path.realpath('')))
+from utils import adskalman
+
 
 fly_nodes = [
     'head',

@@ -11,23 +11,23 @@ from scipy.ndimage import gaussian_filter1d
 from imblearn.over_sampling import RandomOverSampler
 import sklearn
 from sklearn.metrics import log_loss, f1_score
-
+import sys
+sys.path.append(os.path.dirname(os.path.realpath('')))
 from utils import bases, song_utils
 
 import multiprocessing
 
 
-def load_feature(filepath, ftr, fill=False):
+def load_feature(filepath, ftr, fill=False, remove_outliers=False, outlier_threshold=None):
     with h5py.File(filepath, 'r') as f:
         if ftr in f.keys():
             feature = np.copy(f[ftr])
         else:
             feature = []
             return feature
-    if ftr.endswith('V'):
-        feature[np.where(feature > 5)[0]] = np.nan
-        feature[np.where(feature < -5)[0]] = np.nan
-        feature = fill_missing(feature)
+    if remove_outliers:
+        feature[np.where(abs(feature) >= outlier_threshold)[0]] = np.nan
+
     if fill:
         feature = fill_missing(feature).flatten()
 
@@ -81,7 +81,7 @@ def splitTrainTest(x, y, testFrac=0.2, oversample=True):
     return data, testInds
 
 
-def design(ftrfile, feat, window, mfDist_thresh, fmAng_thresh, px2mm=30):
+def design(ftrfile, feat, window, mfDist_thresh, mfAng_thresh, px2mm=30):
     output = []
     D = []
 
@@ -89,7 +89,7 @@ def design(ftrfile, feat, window, mfDist_thresh, fmAng_thresh, px2mm=30):
     oeStarts = load_feature(ftrfile, 'oeStarts')
     oeEnds = load_feature(ftrfile, 'oeEnds')
     mfDist = load_feature(ftrfile, 'mfDist', fill=True)  # units = px (29px/mm)
-    fmAng = load_feature(ftrfile, 'fmAng', fill=True)
+    mfAng = load_feature(ftrfile, 'mfAng', fill=True)
 
     # set up design matrix
     usedIdxs = np.zeros(len(mfDist))
@@ -103,7 +103,7 @@ def design(ftrfile, feat, window, mfDist_thresh, fmAng_thresh, px2mm=30):
             continue
 
         if np.mean(mfDist[start:stop]) > mfDist_thresh * px2mm: continue  # excluding when the animals are far apart
-        if np.mean(np.abs(fmAng[start:stop])) > fmAng_thresh: continue  # excluding when male is not facing female
+        if np.mean(np.abs(mfAng[start:stop])) > mfAng_thresh: continue  # excluding when male is not facing female
 
         if np.sum(usedIdxs[start:stop]) > 0:  # no double-dipping
             continue
@@ -138,7 +138,7 @@ def design(ftrfile, feat, window, mfDist_thresh, fmAng_thresh, px2mm=30):
             continue
 
         if np.mean(mfDist[start:stop]) > mfDist_thresh * px2mm: continue  # excluding when the animals are far apart
-        if np.mean(np.abs(fmAng[start:stop])) > fmAng_thresh: continue  # excluding when male is not fac
+        if np.mean(np.abs(mfAng[start:stop])) > mfAng_thresh: continue  # excluding when male is not fac
 
         # make sure we are not overlapping with previously used trials
         if np.sum(usedIdxs[start - window:stop + window]) > 0:
@@ -157,7 +157,7 @@ def design(ftrfile, feat, window, mfDist_thresh, fmAng_thresh, px2mm=30):
     return x, y
 
 
-def load_design(exptList, ftr, window, mfDist_thresh=10, fmAng_thresh=60, px2mm=30):
+def load_design(exptList, ftr, window, mfDist_thresh=10, mfAng_thresh=60, px2mm=30):
     fullDesignMatrix = []
     fullOutput = []
 
@@ -165,7 +165,7 @@ def load_design(exptList, ftr, window, mfDist_thresh=10, fmAng_thresh=60, px2mm=
         #         initialize feature and Zscore it
         fly = os.path.basename(exptDir)
         # print(fly)
-        ftrfile = os.path.join(exptDir, fly + '_smoothed.h5')
+        ftrfile = os.path.join(exptDir, fly + '.h5')
         # print(ftrfile)
         songftrs = os.path.join(exptDir, fly + '_song.h5')
         if fly == '220809_162800_16276625_rig2_1':  # weird tracks
@@ -192,7 +192,15 @@ def load_design(exptList, ftr, window, mfDist_thresh=10, fmAng_thresh=60, px2mm=
                     feat[st:en] = 2
 
         elif ftr != 'pulse' and ftr != 'sine':
-            feat = load_feature(ftrfile, ftr, fill=True)
+
+            if ftr.endswith('Ang') or ftr.endswith('Dist'):
+                rm_outlier = False
+                outlier_thresh = None
+            else:
+                rm_outlier=True
+                outlier_thresh = 10 # 50mm/s
+
+            feat = load_feature(ftrfile, ftr, fill=True, remove_outliers=rm_outlier, outlier_threshold=outlier_thresh)
             feat = gaussian_filter1d(feat, sigma=2)
             feat = zscore(feat, nan_policy='omit')
             if np.isnan(feat).any():
@@ -208,7 +216,7 @@ def load_design(exptList, ftr, window, mfDist_thresh=10, fmAng_thresh=60, px2mm=
                 for st, en in feature:
                     feat[st:en] = 1
 
-        x, y = design(ftrfile, feat, window, mfDist_thresh, fmAng_thresh, px2mm)
+        x, y = design(ftrfile, feat, window, mfDist_thresh, mfAng_thresh, px2mm)
 
         fullDesignMatrix.append(x)
         fullOutput.append(y)
@@ -313,7 +321,7 @@ def plot_filters(filtershapes, ftr, savepath):
     plt.close()
 
 
-def main(exptfolder, window=1500, overwrite=False):
+def main(exptfolder, window=1500, overwrite=True):
     cup = song_utils.getParentDirectory('cup')
     tigress = song_utils.getParentDirectory('tigress')
 
@@ -330,11 +338,9 @@ def main(exptfolder, window=1500, overwrite=False):
         "mFV", "fFV",
         "mFA", "fFA",
         "mLV", "fLV",
-        "mLS", "fLS",
-        "mLA", "fLA",
-        "mRS", "fRS",
+        "mRS","fRS",
         "mfAng", "fmAng",
-        "song", "pulse", "sine"
+        "pulse", "sine"
     ]
 
     random.seed(15)
@@ -343,9 +349,10 @@ def main(exptfolder, window=1500, overwrite=False):
     if os.path.exists(saveFile) and overwrite:
         print("overwriting previous results")
     elif os.path.exists(saveFile) and not overwrite:
-        print("results csv file exists but will not overwrite features")
-        results = pd.read_csv(saveFile, index_col=0)
-        ftrList = [ftr for ftr in ftrList if ftr not in results['feature'].unique()]
+        print("results csv file exists and overwrite set to False")
+        # results = pd.read_csv(saveFile, index_col=0)
+        # ftrList = [ftr for ftr in ftrList if ftr not in results['feature'].unique()]
+        return
 
     for ftr in ftrList:
         print("working on {}".format(ftr))
@@ -369,8 +376,8 @@ def main(exptfolder, window=1500, overwrite=False):
 
 
 if __name__ == "__main__":
+    exptGroups = glob.glob(r'/cup/murthy/Kyle/data/edna/*')
+    exptGroups.remove('/cup/murthy/Kyle/data/edna/control')
 
-    exptPath = r'/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/'
-
-    with multiprocessing.Pool(5) as pool:
-        pool.map(main, [expt_folder for expt_folder in os.listdir(exptPath)])
+    with multiprocessing.Pool(7) as pool:
+        pool.map(main, [os.path.basename(expt_folder) for expt_folder in exptGroups])
