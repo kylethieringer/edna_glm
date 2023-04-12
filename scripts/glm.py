@@ -10,10 +10,11 @@ from scipy.stats import zscore
 from scipy.ndimage import gaussian_filter1d
 from imblearn.over_sampling import RandomOverSampler
 import sklearn
-from sklearn.metrics import log_loss, r2_score, f1_score
+from sklearn.metrics import log_loss, f1_score
 
-import bases
-import song_utils
+from utils import bases, song_utils
+
+import multiprocessing
 
 
 def load_feature(filepath, ftr, fill=False):
@@ -180,29 +181,32 @@ def load_design(exptList, ftr, window, mfDist_thresh=10, fmAng_thresh=60, px2mm=
             pulse = load_feature(songftrs, 'pulseStEn')
             sine = load_feature(songftrs, 'sineStEn')
             frame_at_sample = load_feature(ftrfile, 'frame_at_sample')
-            pulse = frame_at_sample[pulse].astype(int)
-            sine = frame_at_sample[sine].astype(int)
             feat = np.zeros(int(frame_at_sample[-1]))
-            for st, en in pulse:
-                feat[st:en] = 1
-            for st, en in sine:
-                feat[st:en] = 2
+            if pulse.any():
+                pulse = frame_at_sample[pulse].astype(int)
+                for st, en in pulse:
+                    feat[st:en] = 1
+            if sine.any():
+                sine = frame_at_sample[sine].astype(int)
+                for st, en in sine:
+                    feat[st:en] = 2
 
         elif ftr != 'pulse' and ftr != 'sine':
             feat = load_feature(ftrfile, ftr, fill=True)
             feat = gaussian_filter1d(feat, sigma=2)
-            # import pdb; pdb.set_trace()
             feat = zscore(feat, nan_policy='omit')
             if np.isnan(feat).any():
                 continue
+
         else:  # feature = 'sine' or 'pulse'
             ftrname = ftr + 'StEn'
             feature = load_feature(songftrs, ftrname)
             frame_at_sample = load_feature(ftrfile, 'frame_at_sample')
-            feature = frame_at_sample[feature].astype(int)
             feat = np.zeros(int(frame_at_sample[-1]))
-            for st, en in feature:
-                feat[st:en] = 1
+            if feature.any():
+                feature = frame_at_sample[feature].astype(int)
+                for st, en in feature:
+                    feat[st:en] = 1
 
         x, y = design(ftrfile, feat, window, mfDist_thresh, fmAng_thresh, px2mm)
 
@@ -234,7 +238,7 @@ def pcor(x, y, window):
     # for the most part the shapes don't matter too much, they only effect the filter shapes
     # plot with plt.plot(B)
     if window == 1500:  # 10 seconds if 150fps
-        B = bases.raised_cosine(0, 12, [0, 700], 5, window)
+        B = bases.raised_cosine(0, 12, [0, 1000], 200, window)
     elif window == 300:  # 2 seconds if 150fps
         B = bases.raised_cosine(0, 12, [0, 220], 75, window)
     elif window == 750:
@@ -309,13 +313,17 @@ def plot_filters(filtershapes, ftr, savepath):
     plt.close()
 
 
-def main():
+def main(exptfolder, window=1500, overwrite=False):
     cup = song_utils.getParentDirectory('cup')
-    exptList = glob.glob(os.path.join(cup, r'Kyle/data/edna/control/**'))
-
     tigress = song_utils.getParentDirectory('tigress')
+
+    exptList = glob.glob(os.path.join(cup, rf'Kyle/data/edna/{exptfolder}/**'))
+
     savepath = os.path.join(tigress, r'Kyle/code/edna')
-    print("Saving results to : {}\n".format(savepath + r'/results/results2'))
+    print(fr"Saving results to : /results/{exptfolder}")
+
+    if not os.path.exists(os.path.join(savepath, f'results/{exptfolder}')):
+        os.makedirs(os.path.join(savepath, f'results/{exptfolder}'))
 
     ftrList = [
         "mfDist",
@@ -326,34 +334,43 @@ def main():
         "mLA", "fLA",
         "mRS", "fRS",
         "mfAng", "fmAng",
-        "mfFV", "fmFV",
-        "mfLS", "fmLS",
-        "wings",
         "song", "pulse", "sine"
     ]
 
     random.seed(15)
     results = pd.DataFrame(columns=['feature', 'pCor', 'f1_score', 'logloss', 'filterNorms', 'deviance'])
+    saveFile = os.path.join(savepath, rf'results/{exptfolder}/{window}_results.csv')
+    if os.path.exists(saveFile) and overwrite:
+        print("overwriting previous results")
+    elif os.path.exists(saveFile) and not overwrite:
+        print("results csv file exists but will not overwrite features")
+        results = pd.read_csv(saveFile, index_col=0)
+        ftrList = [ftr for ftr in ftrList if ftr not in results['feature'].unique()]
+
     for ftr in ftrList:
         print("working on {}".format(ftr))
 
-        x, y = load_design(exptList, ftr, 300, mfDist_thresh=10)
-        fracCorr, f1value, lloss, fshapes, fnorms, dev = pcor(x, y, 300)
+        x, y = load_design(exptList, ftr, window, mfDist_thresh=10)
+        fracCorr, f1value, lloss, fshapes, fnorms, dev = pcor(x, y, window)
 
         print("plotting {} filters".format(ftr))
-        filterSavePath = os.path.join(savepath, 'results/results2/{}_filters.png'.format(ftr))
+        filterSavePath = os.path.join(savepath, f'results/{exptfolder}/{window}_{ftr}_filters.png')
         plot_filters(fshapes, ftr, filterSavePath)
 
         for pc, f1, ll, fn, d in zip(fracCorr, f1value, lloss, fnorms, dev):
             results.loc[len(results.index)] = [ftr, pc, f1, ll, fn, d]
         print("done with {}\n".format(ftr))
+        results.to_csv(saveFile)
 
     print("saving final dataframe\n\n\n")
-    saveFile = os.path.join(savepath, r'results/results2/results.csv')
     results.to_csv(saveFile)
 
     print("All done")
 
 
 if __name__ == "__main__":
-    main()
+
+    exptPath = r'/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/'
+
+    with multiprocessing.Pool(5) as pool:
+        pool.map(main, [expt_folder for expt_folder in os.listdir(exptPath)])

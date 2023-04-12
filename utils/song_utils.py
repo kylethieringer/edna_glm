@@ -5,7 +5,7 @@ from scipy.io import loadmat
 import pandas as pd
 import sys
 import glob
-
+import multiprocessing
 
 def getParentDirectory(fileserver):
     """ check which operating system then direct to tigress or cup"""
@@ -282,7 +282,7 @@ def save_songFtrs(song_path, output_path, overwrite=False):
         print("FILE EXISTS WILL NOT OVERWRITE: ")
         return output_path
     fly = os.path.basename(os.path.dirname(song_path))
-    ftrfile = os.path.join(os.path.dirname(output_path), fly + '_features.h5')
+    ftrfile = os.path.join(os.path.dirname(output_path), fly + '_smoothed.h5')
 
     if not os.path.exists(ftrfile):
         print("FEATURES DONT EXISTS CANNOT PROCEED: ")
@@ -315,11 +315,22 @@ def save_songFtrs(song_path, output_path, overwrite=False):
     return output_path
 
 
-def main():
-    pass
+def main(expt_Dir):
+    if expt_Dir=='control':
+        return
+    rawDataDict = {
+        "AD_control": "experimental_sleapOE_AK_combined_to_analyze",
+        "AD_control_BD": "manipulated_summer22_AK_controls",
+        "blind":"manipulated_summer22_AK_blind",
+        "deaf":"manipulated_summer22_AK_deaf",
+        "blind_deaf":"manipulated_summer22_AK_blindanddeaf",
+        "LC31_Kir":"experimental_sleapOE_fall21_LK",
+        "vpoEN_Kir":"experimental_sleapOE_VK_combined_to_analyze"
+    }
+
     exptPath = glob.glob(
-        '/run/user/1000/gvfs/smb-share:server=tigress-cifs.princeton.edu,share=fileset-mmurthy/eDNA/behavior/manipulated_summer22_AK_controls/**')
-    outputDir = '/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/control'
+        fr'/run/user/1000/gvfs/smb-share:server=tigress-cifs.princeton.edu,share=fileset-mmurthy/eDNA/behavior/{rawDataDict[expt_Dir]}/**')
+    outputDir = f'/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/{expt_Dir}'
 
     for expt_folder in exptPath:
         fly = os.path.basename(expt_folder)
@@ -333,4 +344,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    exptPaths = os.listdir('/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/')
+
+    with multiprocessing.Pool(8) as pool:
+        pool.map(main, [expt_folder for expt_folder in exptPaths])

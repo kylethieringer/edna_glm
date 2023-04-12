@@ -10,6 +10,7 @@ import scipy.io
 import scipy.interpolate
 import adskalman
 import glob
+import multiprocessing
 
 fly_nodes = [
     'head',
@@ -47,6 +48,7 @@ def load_tracks(expt_folder):
                                       os.path.basename(expt_folder) + '.000000.mp4.inference.cleaned.tracking.h5')
     else:
         track_file = expt_folder
+
     with h5py.File(track_file, "r") as f:
         tracks = np.transpose(f["tracks"][:])  # (frame, joint, xy, fly)
         node_names = f["node_names"][:]
@@ -328,7 +330,7 @@ def signed_angle(a, b):
     return np.rad2deg(theta) * sign
 
 
-def compute_features(fThx, mThx, fHd, mHd):
+def compute_features(fThx, mThx, fHd, mHd, fAbd):
     """Extract behavioral features given head and thorax coordinates.
 
     Args:
@@ -336,7 +338,7 @@ def compute_features(fThx, mThx, fHd, mHd):
         mThx: Male thorax coordinates in array of shape (timesteps, 2).
         fHd: Female head coordinates in array of shape (timesteps, 2).
         mHd: Female head coordinates in array of shape (timesteps, 2).
-
+        fAbd: Female abdomen coordinates in array of shape (timesteps, 2).
     Returns:
         A dictionary of classical features with keys:
 
@@ -371,6 +373,8 @@ def compute_features(fThx, mThx, fHd, mHd):
 
     # Euclidean distance between the male and female thorax.
     mfDist = np.sqrt(np.sum((fThx - mThx) ** 2, axis=1))
+    # Euclidean distance between male head and female abdomen.
+    mfDist_mHead_fAbd = np.sqrt(np.sum((fAbd - mHd) ** 2, axis=1))
 
     # Vector joining the thorax points in consecutive frames.
     mV_vec = np.diff(mThx, axis=0)
@@ -417,16 +421,16 @@ def compute_features(fThx, mThx, fHd, mHd):
     fRS = signed_angle(fDir[0:(-1 - delt), :], fDir[delt:-1, :])
     fRS = np.pad(fRS, (1, 1), mode="edge")
 
-    # Angular velocity (of the thorax)
     # Vector joining one fly's thorax to the other's
-    mfDir = fHd - mThx
-    fmDir = mHd - fThx
+    mfDir = fThx - mHd
+    fmDir = mThx - fHd
+
     fmDir_unit = fmDir / np.linalg.norm(fmDir, axis=1, keepdims=True)
     mfDir_unit = mfDir / np.linalg.norm(mfDir, axis=1, keepdims=True)
 
     # Angle subtended by one fly on the other fly
-    mfAng = signed_angle(mDir, fmDir)
-    fmAng = signed_angle(fDir, mfDir)
+    mfAng = signed_angle(mDir, mfDir)
+    fmAng = signed_angle(fDir, fmDir)
 
     # Velocity in the direction of the other fly.
     fmFV = np.sum(fV_vec * fmDir_unit, axis=1)
@@ -460,6 +464,7 @@ def compute_features(fThx, mThx, fHd, mHd):
     ftrs["fmFV"] = fmFV
     ftrs["mfLS"] = mfLS
     ftrs["fmLS"] = fmLS
+    ftrs["mfDist_mHead_fAbd"] = mfDist_mHead_fAbd
 
     return ftrs
 
@@ -571,7 +576,8 @@ def make_expt_dataset(expt_folder, output_path=None, overwrite=False, ctr_ind=1,
     """
 
     expt_name = os.path.basename(expt_folder)
-    print(f"Starting with: {expt_name}")
+    print(f"Starting with: {expt_name}\n")
+    print(f"Raw Data Path: {expt_folder}\n")
 
     if output_path is None:
         output_path = os.getcwd()
@@ -580,12 +586,18 @@ def make_expt_dataset(expt_folder, output_path=None, overwrite=False, ctr_ind=1,
         output_path = os.path.join(output_path, f"{expt_name}.h5")
 
     if os.path.exists(output_path) and not overwrite:
-        print(f"output path already exists and overwrite is set to False")
+        print(f"output path already exists and overwrite is set to False\n\n")
         return output_path
 
     print(f"will save features to {output_path}")
     # Load synchronization.
     sample_at_frame, frame_at_sample = get_expt_sync(expt_folder)
+
+    # check if sleap tracks .h5 file exists
+    if not any(fname.endswith('tracking.h5') for fname in os.listdir(expt_folder)):
+        print(f"no tracking file exists in experiment folder")
+        print("skipping for now\n\n")
+        return expt_name
 
     # Load tracking.
     tracks, node_names = load_tracks(expt_folder)
@@ -609,8 +621,9 @@ def make_expt_dataset(expt_folder, output_path=None, overwrite=False, ctr_ind=1,
     wingML, wingMR = compute_wing_angles(egoM)
     arcThetaL, arcThetaR = compute_wing_arc_angles(trxM, trxF)
 
+    abd_ind = 3
     # Compute standard classical features.
-    feats = compute_features(trxF[:, ctr_ind, :], trxM[:, ctr_ind, :], trxF[:, fwd_ind, :], trxM[:, fwd_ind, :])
+    feats = compute_features(trxF[:, ctr_ind, :], trxM[:, ctr_ind, :], trxF[:, fwd_ind, :], trxM[:, fwd_ind, :], trxF[:,abd_ind, :])
 
     oe_startsPath = os.path.join(expt_folder, 'OE_all_start_frames_aka_indices_for_this_file_variable.npy')
     if os.path.exists(oe_startsPath):
@@ -618,12 +631,12 @@ def make_expt_dataset(expt_folder, output_path=None, overwrite=False, ctr_ind=1,
     oe_endPath = os.path.join(expt_folder, 'OE_all_end_frames_aka_indices_for_this_file_variable.npy')
     if os.path.exists(oe_endPath):
         oeEnds = np.load(oe_endPath)
-    print("features created")
+    print("features created\n")
 
     # Ensure output folder exists.
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    print("saving to output file")
+    print("saving to output file\n")
     # Save.
     with h5py.File(output_path, "w") as f:
         f.create_dataset("expt_name", data=expt_name)
@@ -653,25 +666,25 @@ def make_expt_dataset(expt_folder, output_path=None, overwrite=False, ctr_ind=1,
             f.create_dataset("oeStarts", data=oeStarts, compression=1)
         if os.path.exists(oe_endPath):
             f.create_dataset("oeEnds", data=oeEnds, compression=1)
-    print("done")
+    print("done\n\n")
+
     return output_path
 
 
-def main():
-    exptPath = glob.glob(
-        '/run/user/1000/gvfs/smb-share:server=tigress-cifs.princeton.edu,share=fileset-mmurthy/eDNA/behavior/manipulated_summer22_AK_controls/**')
-    outputDir = '/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/control'
+def main(expt_folder):
+    outputDir = '/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/blind_deaf'
+    fly = os.path.basename(expt_folder)
+    if fly.endswith('.txt'):
+        return
+    output_pathDir = os.path.join(outputDir, fly)
+    output_path = os.path.join(output_pathDir, f"{fly}_smoothed.h5")
 
-    for expt_folder in exptPath:
-        fly = os.path.basename(expt_folder)
-        if fly.endswith('.txt'):
-            continue
-        output_pathDir = os.path.join(outputDir, fly)
-        output_path = os.path.join(output_pathDir, f"{fly}_smoothed.h5")
-
-        make_expt_dataset(expt_folder, output_path=output_path, overwrite=True, smoothTrx=True)
+    make_expt_dataset(expt_folder, output_path=output_path, overwrite=False, smoothTrx=True)
 
 
 if __name__ == "__main__":
+    exptPath = glob.glob(
+        '/run/user/1000/gvfs/smb-share:server=tigress-cifs.princeton.edu,share=fileset-mmurthy/eDNA/behavior/manipulated_summer22_AK_blindanddeaf/**')
 
-    main()
+    with multiprocessing.Pool(3) as pool:
+        pool.map(main, [expt_folder for expt_folder in exptPath])
