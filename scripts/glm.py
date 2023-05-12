@@ -14,7 +14,7 @@ from sklearn.metrics import log_loss, f1_score
 import sys
 sys.path.append(os.path.dirname(os.path.realpath('')))
 from utils import bases, song_utils
-
+import time
 import multiprocessing
 
 
@@ -88,7 +88,7 @@ def design(ftrfile, feat, window, mfDist_thresh, mfAng_thresh, px2mm=30):
     # predicting ovipositer bout starts
     oeStarts = load_feature(ftrfile, 'oeStarts')
     oeEnds = load_feature(ftrfile, 'oeEnds')
-    mfDist = load_feature(ftrfile, 'mfDist', fill=True)  # units = px (29px/mm)
+    mfDist = load_feature(ftrfile, 'mfDist', fill=True)  # units = px
     mfAng = load_feature(ftrfile, 'mfAng', fill=True)
 
     # set up design matrix
@@ -170,6 +170,8 @@ def load_design(exptList, ftr, window, mfDist_thresh=10, mfAng_thresh=60, px2mm=
         songftrs = os.path.join(exptDir, fly + '_song.h5')
         if fly == '220809_162800_16276625_rig2_1':  # weird tracks
             continue
+        if not os.path.exists(ftrfile) or not os.path.exists(songftrs):
+            continue
         if ftr == 'wings':
             wingL = load_feature(ftrfile, 'wingML', fill=True)
             wingR = load_feature(ftrfile, 'wingMR', fill=True)
@@ -225,8 +227,8 @@ def load_design(exptList, ftr, window, mfDist_thresh=10, mfAng_thresh=60, px2mm=
     fullDesignMatrix = np.array([trace for array in fullDesignMatrix for trace in array])
     fullOutput = np.array([output for array in fullOutput for output in array])
 
-    print(f"shape of x: {fullDesignMatrix.shape}")
-    print(f"shape of y: {fullOutput.shape}")
+    # print(f"shape of x: {fullDesignMatrix.shape}")
+    # print(f"shape of y: {fullOutput.shape}")
 
     return fullDesignMatrix, fullOutput
 
@@ -321,7 +323,7 @@ def plot_filters(filtershapes, ftr, savepath):
     plt.close()
 
 
-def main(exptfolder, window=1500, overwrite=True):
+def main(exptfolder, window=450, overwrite=True):
     cup = song_utils.getParentDirectory('cup')
     tigress = song_utils.getParentDirectory('tigress')
 
@@ -356,7 +358,7 @@ def main(exptfolder, window=1500, overwrite=True):
 
     for ftr in ftrList:
         print("working on {}".format(ftr))
-
+        t0 = time.time()
         x, y = load_design(exptList, ftr, window, mfDist_thresh=10)
         fracCorr, f1value, lloss, fshapes, fnorms, dev = pcor(x, y, window)
 
@@ -368,6 +370,8 @@ def main(exptfolder, window=1500, overwrite=True):
             results.loc[len(results.index)] = [ftr, pc, f1, ll, fn, d]
         print("done with {}\n".format(ftr))
         results.to_csv(saveFile)
+        t1 = time.time()
+        print(f"{ftr} COMPLETE : {t1-t0} (s)")
 
     print("saving final dataframe\n\n\n")
     results.to_csv(saveFile)

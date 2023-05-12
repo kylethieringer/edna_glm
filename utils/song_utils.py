@@ -315,36 +315,36 @@ def save_songFtrs(song_path, output_path, overwrite=False):
     return output_path
 
 
-def main(expt_Dir):
-    if expt_Dir=='control':
-        return
-    rawDataDict = {
-        "AD_control": "experimental_sleapOE_AK_combined_to_analyze",
-        "AD_control_BD": "manipulated_summer22_AK_controls",
-        "blind":"manipulated_summer22_AK_blind",
-        "deaf":"manipulated_summer22_AK_deaf",
-        "blind_deaf":"manipulated_summer22_AK_blindanddeaf",
-        "LC31_Kir":"experimental_sleapOE_fall21_LK",
-        "vpoEN_Kir":"experimental_sleapOE_VK_combined_to_analyze"
-    }
-
-    exptPath = glob.glob(
-        fr'/run/user/1000/gvfs/smb-share:server=tigress-cifs.princeton.edu,share=fileset-mmurthy/eDNA/behavior/{rawDataDict[expt_Dir]}/**')
-    outputDir = f'/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/{expt_Dir}'
-
-    for expt_folder in exptPath:
-        fly = os.path.basename(expt_folder)
-        if fly.endswith('.txt'):
-            continue
-        output_pathDir = os.path.join(outputDir, fly)
-        song_path = os.path.join(expt_folder, 'daq_segmentation_new.mat')
-        save_songpath = os.path.join(output_pathDir, f"{fly}_song.h5")
-
-        save_songFtrs(song_path, save_songpath, overwrite=False)
-
-
-if __name__ == "__main__":
-    exptPaths = os.listdir('/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/')
-
-    with multiprocessing.Pool(8) as pool:
-        pool.map(main, [expt_folder for expt_folder in exptPaths])
+# def main(expt_Dir):
+#     if expt_Dir=='control':
+#         return
+#     rawDataDict = {
+#         "AD_control": "experimental_sleapOE_AK_combined_to_analyze",
+#         "AD_control_BD": "manipulated_summer22_AK_controls",
+#         "blind":"manipulated_summer22_AK_blind",
+#         "deaf":"manipulated_summer22_AK_deaf",
+#         "blind_deaf":"manipulated_summer22_AK_blindanddeaf",
+#         "LC31_Kir":"experimental_sleapOE_fall21_LK",
+#         "vpoEN_Kir":"experimental_sleapOE_VK_combined_to_analyze"
+#     }
+#
+#     exptPath = glob.glob(
+#         fr'/run/user/1000/gvfs/smb-share:server=tigress-cifs.princeton.edu,share=fileset-mmurthy/eDNA/behavior/{rawDataDict[expt_Dir]}/**')
+#     outputDir = f'/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/{expt_Dir}'
+#
+#     for expt_folder in exptPath:
+#         fly = os.path.basename(expt_folder)
+#         if fly.endswith('.txt'):
+#             continue
+#         output_pathDir = os.path.join(outputDir, fly)
+#         song_path = os.path.join(expt_folder, 'daq_segmentation_new.mat')
+#         save_songpath = os.path.join(output_pathDir, f"{fly}_song.h5")
+#
+#         save_songFtrs(song_path, save_songpath, overwrite=False)
+#
+#
+# if __name__ == "__main__":
+#     exptPaths = os.listdir('/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/')
+#
+#     with multiprocessing.Pool(8) as pool:
+#         pool.map(main, [expt_folder for expt_folder in exptPaths])

@@ -612,8 +612,8 @@ def make_expt_dataset(expt_folder, output_path=None, overwrite=False, ctr_ind=1,
     trxF = tracks[..., femaleIDX]
     trxM = tracks[..., maleIDX]
     if smoothTrx:
-        trxF = fill_missing(trxF)
-        trxM = fill_missing(trxM)
+        # trxF = fill_missing(trxF)
+        # trxM = fill_missing(trxM)
         trxF[:, 0:4, :] = smooth_trx(trxF[:, 0:4, :], fps=150)
         trxM[:, 0:4, :] = smooth_trx(trxM[:, 0:4, :], fps=150)
     egoF = normalize_to_egocentric(trxF)
@@ -673,21 +673,21 @@ def make_expt_dataset(expt_folder, output_path=None, overwrite=False, ctr_ind=1,
 
     return output_path
 
-
-def main(expt_folder):
-    outputDir = '/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/blind_deaf'
-    fly = os.path.basename(expt_folder)
-    if fly.endswith('.txt'):
-        return
-    output_pathDir = os.path.join(outputDir, fly)
-    output_path = os.path.join(output_pathDir, f"{fly}_smoothed.h5")
-
-    make_expt_dataset(expt_folder, output_path=output_path, overwrite=False, smoothTrx=True)
-
-
-if __name__ == "__main__":
-    exptPath = glob.glob(
-        '/run/user/1000/gvfs/smb-share:server=tigress-cifs.princeton.edu,share=fileset-mmurthy/eDNA/behavior/manipulated_summer22_AK_blindanddeaf/**')
-
-    with multiprocessing.Pool(3) as pool:
-        pool.map(main, [expt_folder for expt_folder in exptPath])
+#
+# def main(expt_folder):
+#     outputDir = '/run/user/1000/gvfs/smb-share:server=cup.pni.princeton.edu,share=murthy/Kyle/data/edna/blind_deaf'
+#     fly = os.path.basename(expt_folder)
+#     if fly.endswith('.txt'):
+#         return
+#     output_pathDir = os.path.join(outputDir, fly)
+#     output_path = os.path.join(output_pathDir, f"{fly}_smoothed.h5")
+#
+#     make_expt_dataset(expt_folder, output_path=output_path, overwrite=False, smoothTrx=True)
+#
+#
+# if __name__ == "__main__":
+#     exptPath = glob.glob(
+#         '/run/user/1000/gvfs/smb-share:server=tigress-cifs.princeton.edu,share=fileset-mmurthy/eDNA/behavior/manipulated_summer22_AK_blindanddeaf/**')
+#
+#     with multiprocessing.Pool(3) as pool:
+#         pool.map(main, [expt_folder for expt_folder in exptPath])

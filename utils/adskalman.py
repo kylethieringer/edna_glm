@@ -1,5 +1,5 @@
 import numpy
-import numpy.matlib
+# import numpy.matlib
 linalg = numpy.linalg
 # import scikits.learn.machine.em.densities as densities
 
